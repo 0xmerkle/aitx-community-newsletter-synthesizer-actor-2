@@ -1,0 +1,16 @@
+{
+    "actorOutputSchemaVersion": 1,
+    "title": "AITX Newsletter Synthesizer Output",
+    "properties": {
+        "newsletterDraft": {
+            "type": "string",
+            "title": "Newsletter Draft",
+            "template": "{{links.apiDefaultKeyValueStoreUrl}}/records/newsletter-draft"
+        },
+        "overview": {
+            "type": "string",
+            "title": "Overview",
+            "template": "{{links.apiDefaultDatasetUrl}}/items?view=overview"
+        }
+    }
+}

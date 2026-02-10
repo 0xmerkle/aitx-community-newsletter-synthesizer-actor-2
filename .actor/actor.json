@@ -1,0 +1,18 @@
+{
+    "actorSpecification": 1,
+    "name": "aitx-community-newsletter-synthesizer-demo",
+    "title": "Demo - AITX Community Newsletter Synthesizer",
+    "description": "Processes articles and events from Actor 1's dataset through Claude AI, Notion, and Lu.ma APIs to produce a publication-ready newsletter draft.",
+    "version": "1.0",
+    "meta": {
+        "templateId": "ts-empty",
+        "generatedBy": "Claude Code with Claude Opus 4.6"
+    },
+    "input": "./input_schema.json",
+    "output": "./output_schema.json",
+    "storages": {
+        "dataset": "./dataset_schema.json",
+        "keyValueStore": "./key_value_store_schema.json"
+    },
+    "dockerfile": "../Dockerfile"
+}

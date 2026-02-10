@@ -1,0 +1,37 @@
+{
+    "actorSpecification": 1,
+    "fields": {},
+    "views": {
+        "overview": {
+            "title": "Overview",
+            "transformation": {
+                "fields": ["title", "subjectLine", "notionPageUrl", "storiesCount", "eventsCount"]
+            },
+            "display": {
+                "component": "table",
+                "properties": {
+                    "title": {
+                        "label": "Title",
+                        "format": "text"
+                    },
+                    "subjectLine": {
+                        "label": "Subject Line",
+                        "format": "text"
+                    },
+                    "notionPageUrl": {
+                        "label": "Notion Page",
+                        "format": "link"
+                    },
+                    "storiesCount": {
+                        "label": "Stories",
+                        "format": "number"
+                    },
+                    "eventsCount": {
+                        "label": "Events",
+                        "format": "number"
+                    }
+                }
+            }
+        }
+    }
+}

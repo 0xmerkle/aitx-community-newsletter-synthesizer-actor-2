@@ -1,0 +1,19 @@
+{
+    "actorKeyValueStoreSchemaVersion": 1,
+    "title": "AITX Newsletter Synthesizer Key-Value Store",
+    "description": "Stores the newsletter draft and pipeline checkpoint state.",
+    "collections": {
+        "newsletterDraft": {
+            "title": "Newsletter Draft",
+            "description": "The complete newsletter draft output as JSON.",
+            "key": "newsletter-draft",
+            "contentTypes": ["application/json"]
+        },
+        "pipelineState": {
+            "title": "Pipeline State",
+            "description": "Checkpoint state for pipeline resumption.",
+            "key": "PIPELINE_STATE",
+            "contentTypes": ["application/json"]
+        }
+    }
+}

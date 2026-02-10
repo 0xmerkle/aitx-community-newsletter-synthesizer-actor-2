@@ -1,0 +1,29 @@
+{
+    "title": "AITX Newsletter Synthesizer Input",
+    "type": "object",
+    "schemaVersion": 1,
+    "properties": {
+        "datasetId": {
+            "title": "Dataset ID",
+            "type": "string",
+            "description": "The Apify dataset ID from Actor 1 containing articles and events.",
+            "editor": "textfield"
+        },
+        "topStoriesCount": {
+            "title": "Top Stories Count",
+            "type": "integer",
+            "description": "Number of top stories to feature in the newsletter.",
+            "default": 3,
+            "minimum": 1,
+            "maximum": 10
+        },
+        "webhookUrl": {
+            "title": "Webhook URL",
+            "type": "string",
+            "description": "Optional webhook URL to POST the newsletter draft on completion.",
+            "editor": "textfield",
+            "nullable": true
+        }
+    },
+    "required": ["datasetId"]
+}
