@@ -84,13 +84,16 @@ export async function filterEvents(events: EventData[], claudeService: Anthropic
     log.info(`After location filter: ${withLocation.length} events`);
 
     // Pass 6: Format to FilteredEvent
-    const formatted: FilteredEvent[] = withLocation.map((e) => ({
+    const formatted: FilteredEvent[] = withLocation.map((e) => {
+        log.info(`Formatting event: "${e.title}" | raw date="${e.start_date}" start_time="${e.start_time}" end_time="${e.end_time}"`);
+        return {
         title: e.title,
         url: e.url,
         when: formatEventDateTime(e.start_date!, e.start_time, e.end_time),
         where: formatWhere(e),
         what: removeEmDashes(e.description || e.title),
-    }));
+    };
+    });
 
     log.info(`Step 6 complete: ${formatted.length} events after all filters.`);
     return formatted;
