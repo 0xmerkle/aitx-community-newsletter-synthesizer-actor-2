@@ -1,64 +1,71 @@
-## 🎭 PlaywrightCrawler template
+# AITX Newsletter Synthesizer
 
-<!-- This is an Apify template readme -->
+An [Apify Actor](https://apify.com/actors) that filters scraped content using Claude AI, enriches events, and generates a publication-ready newsletter draft for the [AITX Community](https://aitx.beehiiv.com).
 
-This template is a production ready boilerplate for developing an [Actor](https://apify.com/actors) with `PlaywrightCrawler`. Use this to bootstrap your projects using the most up-to-date code. 🚀
+## What it does
 
-> We decided to split Apify SDK into two libraries, Crawlee and Apify SDK v3. Crawlee will retain all the crawling and scraping-related tools and will always strive to be the best [web scraping](https://apify.com/web-scraping) library for its community. At the same time, Apify SDK will continue to exist, but keep only the Apify-specific features related to building Actors on the Apify platform. Read the upgrading guide to learn about the changes.
+Takes a Dataset of articles and events from the [Newsletter Digest Scraper](https://github.com/0xmerkle/aitx-community-newsletter-digest-actor-1) and:
 
-## 📚 Resources
+1. **Filters articles** with Claude Sonnet 4.5 for Texas + AI relevance (25+ articles → 3-5)
+2. **Filters events** with the same relevance scoring (40+ events → ~8)
+3. **Enriches Lu.ma events** via the individual event API for full descriptions
+4. **Summarizes** event descriptions using Claude Haiku (Lu.ma stores descriptions as structured JSON)
+5. **Queries Notion** for community highlights and initiatives
+6. **Generates** story summaries and "why it matters" sections
+7. **Saves** a formatted draft to a Notion database
 
-If you're looking for examples or want to learn more visit:
+## Pipeline
 
-- 🧭 [Crawlee + Apify Platform guide](https://crawlee.dev/docs/guides/apify-platform)
-- 📖 [Documentation](https://crawlee.dev/api/playwright-crawler/class/PlaywrightCrawler) and [examples](https://crawlee.dev/docs/examples/playwright-crawler)
-- 🎓 [Node.js tutorials](https://docs.apify.com/academy/node-js) in Academy
-- 🕸️ [Scraping single-page applications with Playwright](https://blog.apify.com/scraping-single-page-applications-with-playwright/)
-- 📈 [How to scale Puppeteer and Playwright](https://blog.apify.com/how-to-scale-puppeteer-and-playwright/)
-- 🔗 [Integration with Zapier](https://apify.com/integrations), Make, GitHub, Google Drive and other apps
-- 🎬 [Video guide on getting scraped data using Apify API](https://www.youtube.com/watch?v=ViYYDHSBAKM)
-- 🛠️ A short guide on how to build web scrapers using code templates:
+This Actor is the second half of a two-Actor pipeline, triggered by a webhook when the [Digest Scraper](https://github.com/0xmerkle/aitx-community-newsletter-digest-actor-1) completes.
 
-[web scraper template](https://www.youtube.com/watch?v=u-i-Korzf8w)
+    Actor 1                      Actor 2 (this repo)
+    ┌──────────────────┐         ┌──────────────────────┐
+    │ Scrape RSS       │         │ Filter with Claude AI │
+    │ Fetch Lu.ma API  │──webhook──▶│ Enrich Lu.ma events  │
+    │ Call Meetup Actor │         │ Query Notion          │
+    │ Normalize + push │         │ Generate draft        │
+    └──────────────────┘         └──────────────────────┘
 
-## 🏁 Getting started
+## Input
 
-For complete information [see this article](https://docs.apify.com/platform/actors/development#build-actor-locally). To run the Actor use the following command:
+| Field | Type | Description |
+|-------|------|-------------|
+| `datasetId` | string | Dataset ID from Actor 1 (passed via webhook) |
+| `topStoriesCount` | number | Number of top stories to include (default: 3) |
+
+## Checkpoint system
+
+The pipeline saves progress to Apify's Key-Value Store after each step using the `PIPELINE_STATE` key. If a run fails mid-execution (Notion timeout, API rate limit, etc.), use Apify's resurrection feature to restart — the Actor reads its checkpoint and resumes from the last completed step. Checkpoints are cleared on successful completion.
+
+## Environment variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ANTHROPIC_API_KEY` | Yes | Anthropic API key for Claude Sonnet 4.5 and Haiku |
+| `NOTION_API_KEY` | Yes | Notion integration token for reading community content and saving drafts |
+
+Set these in the Apify Console under Actor → Settings → Environment variables.
+
+## Output
+
+The newsletter draft is saved to:
+- **Key-Value Store**: `PIPELINE_STATE` (intermediate checkpoints)
+- **Notion database**: A formatted draft page with markdown blocks ready for beehiiv
+
+## Local development
 
 ```bash
-apify run
+npm install
+cp .env.example .env    # Add your API keys
+npm run start:dev       # Run locally with Apify CLI
+npm run build           # TypeScript compile check
 ```
 
-## 🚀 Deploy to Apify
+## Deployment
 
-### 🔗 Connect Git repository to Apify
+Connected to Apify via GitHub integration. Every push to `main` triggers an automatic build and deploy.
 
-If you've created a Git repository for the project, you can easily connect to Apify:
+## Related
 
-1. Go to [Actor creation page](https://console.apify.com/actors/new)
-2. Click on **Link Git Repository** button
-
-### 💻 Push project on your local machine to Apify
-
-You can also deploy the project on your local machine to Apify without the need for the Git repository.
-
-1. 🔑 Log in to Apify. You will need to provide your [Apify API Token](https://console.apify.com/account/integrations) to complete this action.
-
-    ```bash
-    apify login
-    ```
-
-2. 🚢 Deploy your Actor. This command will deploy and build the Actor on the Apify Platform. You can find your newly created Actor under [Actors -> My Actors](https://console.apify.com/actors?tab=my).
-
-    ```bash
-    apify push
-    ```
-
-## 📝 Documentation reference
-
-To learn more about Apify and Actors, take a look at the following resources:
-
-- 📘 [Apify SDK for JavaScript documentation](https://docs.apify.com/sdk/js)
-- 🐍 [Apify SDK for Python documentation](https://docs.apify.com/sdk/python)
-- ⚙️ [Apify Platform documentation](https://docs.apify.com/platform)
-- 💬 [Join our developer community on Discord](https://discord.com/invite/jyEM2PRvMU)
+- **Actor 1:** [aitx-community-newsletter-digest-actor-1](https://github.com/0xmerkle/aitx-community-newsletter-digest-actor-1) — Scrapes RSS, Lu.ma, and Meetup sources
+- **Blog post:** [How I built a two-Actor newsletter pipeline that saves me 3 hours every week](LINK_TO_BLOG_POST)
