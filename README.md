@@ -68,4 +68,3 @@ Connected to Apify via GitHub integration. Every push to `main` triggers an auto
 ## Related
 
 - **Actor 1:** [aitx-community-newsletter-digest-actor-1](https://github.com/0xmerkle/aitx-community-newsletter-digest-actor-1) — Scrapes RSS, Lu.ma, and Meetup sources
-- **Blog post:** [How I built a two-Actor newsletter pipeline that saves me 3 hours every week](LINK_TO_BLOG_POST)
