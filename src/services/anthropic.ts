@@ -197,7 +197,7 @@ Filter the following events to keep ONLY those relevant to AI, technology, data 
 Events:
 ${eventList}
 
-Respond with a JSON array of the titles of relevant events. For example: ["Event Title 1", "Event Title 3"]
+Respond with a JSON array of the event numbers to keep. For example: [1, 3]
 
 Return ONLY the JSON array, no other text.`,
                 },
@@ -208,9 +208,13 @@ Return ONLY the JSON array, no other text.`,
         await rateLimitDelay();
 
         const text = this.extractText(response);
-        const jsonArray = this.extractJsonArray(text) as string[];
+        const jsonArray = this.extractJsonArray(text);
+        const indexes = jsonArray
+            .map((value) => Number(value))
+            .filter((value) => Number.isInteger(value) && value >= 1 && value <= events.length);
+        const keep = new Set(indexes.map((value) => value - 1));
 
-        return events.filter((e) => jsonArray.includes(e.title)).slice(0, 8);
+        return events.filter((_, index) => keep.has(index)).slice(0, 8);
     }
 
     async summarizeLumaDescription(descriptionContent: unknown): Promise<string> {

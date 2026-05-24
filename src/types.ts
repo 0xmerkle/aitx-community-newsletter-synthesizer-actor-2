@@ -2,6 +2,7 @@ export interface ActorInput {
     datasetId: string;
     topStoriesCount?: number;
     webhookUrl?: string;
+    forceFresh?: boolean;
 }
 
 export interface ArticleData {

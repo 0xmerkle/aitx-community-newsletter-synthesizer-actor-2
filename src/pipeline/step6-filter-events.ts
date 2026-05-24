@@ -1,28 +1,47 @@
-import { nextFriday } from 'date-fns';
-
 import log from '@apify/log';
 
 import type { AnthropicService } from '../services/anthropic.js';
 import type { EventData, FilteredEvent } from '../types.js';
 import { formatEventDateTime } from '../utils/dateFormatting.js';
+import { getCentralDateKey, getNewsletterCutoffDateKey, parseEventDate } from '../utils/eventDate.js';
 import { enrichFromLuma } from '../utils/lumaEnrichment.js';
 import { removeEmDashes } from '../utils/textFormatting.js';
 
 export async function filterEvents(events: EventData[], claudeService: AnthropicService): Promise<FilteredEvent[]> {
     log.info(`Step 6: Filtering ${events.length} events...`);
 
-    // Pass 1: Date filter - only events on or after next Friday
-    const nextFri = nextFriday(new Date());
-    const nextFriStr = nextFri.toISOString().split('T')[0];
+    // Pass 1: Date filter - only events on or after the next newsletter date.
+    // If the actor runs on Friday, same-day events remain eligible.
+    const cutoffDateKey = getNewsletterCutoffDateKey();
+    let missingDateCount = 0;
+    let beforeCutoffCount = 0;
 
     let filtered = events.filter((e) => {
-        if (!e.start_date) {
+        const startDate = parseEventDate(e.start_date);
+        if (!startDate) {
+            missingDateCount++;
             log.debug(`Skipping event without start_date: ${e.title}`);
             return false;
         }
-        return e.start_date >= nextFriStr;
+
+        const eventDateKey = getCentralDateKey(startDate);
+        if (eventDateKey < cutoffDateKey) {
+            beforeCutoffCount++;
+            log.debug(`Skipping event before newsletter cutoff: ${e.title}`, {
+                startDate: e.start_date,
+                eventDateKey,
+                cutoffDateKey,
+            });
+            return false;
+        }
+
+        return true;
     });
-    log.info(`After date filter (>= ${nextFriStr}): ${filtered.length} events`);
+    log.info(`After date filter (>= ${cutoffDateKey}): ${filtered.length} events`, {
+        input: events.length,
+        missingDate: missingDateCount,
+        beforeCutoff: beforeCutoffCount,
+    });
 
     // Pass 2: Virtual filter - skip virtual events
     filtered = filtered.filter((e) => {
@@ -47,7 +66,7 @@ export async function filterEvents(events: EventData[], claudeService: Anthropic
     // Pass 4: Lu.ma enrichment for events missing data
     const enriched: EventData[] = [];
     for (const event of filtered) {
-        if (event.source === 'lu.ma' || (event.url && event.url.includes('lu.ma'))) {
+        if (event.source === 'luma' || event.source === 'lu.ma' || (event.url && event.url.includes('lu.ma'))) {
             if (!event.end_time || !event.location) {
                 const result = await enrichFromLuma(event);
                 let enrichedEvent = result.event;

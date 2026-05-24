@@ -1,11 +1,13 @@
-import { format, parse } from 'date-fns';
+import { format } from 'date-fns';
 
 import log from '@apify/log';
 
+import { parseEventDate } from './eventDate.js';
+
 export function formatEventDateTime(date: string, startTime?: string, endTime?: string): string {
     try {
-        const parsedDate = parse(date, 'yyyy-MM-dd', new Date());
-        if (Number.isNaN(parsedDate.getTime())) {
+        const parsedDate = parseEventDate(date);
+        if (!parsedDate) {
             throw new Error(`Invalid date result from parsing "${date}"`);
         }
         const dayOfWeek = format(parsedDate, 'EEEE');

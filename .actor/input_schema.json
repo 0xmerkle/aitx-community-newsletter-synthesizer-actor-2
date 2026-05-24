@@ -23,6 +23,12 @@
             "description": "Optional webhook URL to POST the newsletter draft on completion.",
             "editor": "textfield",
             "nullable": true
+        },
+        "forceFresh": {
+            "title": "Force Fresh Run",
+            "type": "boolean",
+            "description": "Ignore any saved checkpoint and refetch the input dataset.",
+            "default": false
         }
     },
     "required": ["datasetId"]

@@ -39,8 +39,18 @@ try {
     const claudeService = new AnthropicService();
     const notionService = new NotionService();
 
-    // Load checkpoint or create fresh state
-    const state: PipelineState = (await loadCheckpoint()) ?? {
+    // Load checkpoint or create fresh state. Do not reuse rawData from a different dataset.
+    const checkpoint = await loadCheckpoint();
+    if (checkpoint && (input.forceFresh || checkpoint.input.datasetId !== input.datasetId)) {
+        log.info('Ignoring existing checkpoint for fresh run', {
+            forceFresh: input.forceFresh === true,
+            checkpointDatasetId: checkpoint.input.datasetId,
+            inputDatasetId: input.datasetId,
+        });
+        await clearCheckpoint();
+    }
+
+    const state: PipelineState = checkpoint && !input.forceFresh && checkpoint.input.datasetId === input.datasetId ? checkpoint : {
         step: 0,
         stepName: 'initialized',
         input,
