@@ -4,23 +4,20 @@ import type { AnthropicService } from '../services/anthropic.js';
 import type { ArticleSummary, RelevantArticle } from '../types.js';
 
 export async function generateSummaries(
-    relevantArticles: RelevantArticle[],
+    articles: RelevantArticle[],
     topStoriesCount: number,
     claudeService: AnthropicService,
 ): Promise<ArticleSummary[]> {
-    log.info(`Step 3: Generating summaries for top ${topStoriesCount} articles...`);
+    const selected = articles.slice(0, topStoriesCount);
+    log.info(`Step 3: Generating summaries for ${selected.length} articles...`);
 
-    const sorted = [...relevantArticles].sort((a, b) => {
-        if (!a.published_date && !b.published_date) return 0;
-        if (!a.published_date) return 1;
-        if (!b.published_date) return -1;
-        return new Date(b.published_date).getTime() - new Date(a.published_date).getTime();
-    });
+    if (selected.length === 0) {
+        log.warning('Step 3 complete: No relevant articles to summarize.');
+        return [];
+    }
 
-    const topArticles = sorted.slice(0, topStoriesCount);
+    const summaries = await claudeService.generateSummaries(selected);
 
-    const summaries = await claudeService.generateSummaries(topArticles);
-
-    log.info(`Step 3 complete: Generated ${summaries.length} summaries.`);
+    log.info(`Step 3 complete: Generated ${summaries.length}/${selected.length} summaries.`);
     return summaries;
 }

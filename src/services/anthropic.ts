@@ -4,6 +4,7 @@ import log from '@apify/log';
 
 import { CONFIG } from '../config.js';
 import { ArticleSummaryArraySchema } from '../schemas/articleSummary.js';
+import { EventScoreArraySchema } from '../schemas/eventScore.js';
 import { NewsletterMetadataSchema } from '../schemas/newsletterMeta.js';
 import { RelevanceFilterArraySchema } from '../schemas/relevanceFilter.js';
 import { StorySchema } from '../schemas/storyContent.js';
@@ -48,17 +49,17 @@ Evaluate each article below for TWO criteria:
 1. **AI Relevance**: Is this article about artificial intelligence, machine learning, data science, tech industry, or related technology topics?
 2. **Texas Relevance**: Does this article have a connection to Texas (companies based in Texas, events in Texas, people from Texas, impact on Texas tech community)?
 
-For each article, provide a JSON response.
+Also detect DUPLICATE coverage: different outlets often cover the same underlying story (same announcement, funding round, launch, or news event). When multiple articles cover the same underlying story, treat the strongest one (most complete, most authoritative) as the original and mark every other one as a duplicate of it.
 
 Articles to evaluate:
 ${articleList}
 
-Respond with a JSON array. Each element must have:
-- "url": the article URL
-- "headline": the article headline
+Respond with a JSON array with one element per article, in the same order. Each element must have:
+- "index": the article's number from the list above
 - "is_ai_relevant": boolean
 - "is_texas_relevant": boolean
 - "relevance_score": number 0-100 (overall relevance to AITX newsletter)
+- "duplicate_of": the number of the stronger article covering the same underlying story, or null if this article is not duplicate coverage
 - "reasoning": brief explanation of your evaluation
 
 Return ONLY the JSON array, no other text.`,
@@ -73,16 +74,30 @@ Return ONLY the JSON array, no other text.`,
         const jsonArray = this.extractJsonArray(text);
         const parsed = RelevanceFilterArraySchema.parse(jsonArray);
 
-        return parsed.map((result) => {
-            const original = articles.find((a) => a.url === result.url);
-            return {
-                ...original!,
-                is_ai_relevant: result.is_ai_relevant,
-                is_texas_relevant: result.is_texas_relevant,
-                relevance_score: result.relevance_score,
-                reasoning: removeEmDashes(result.reasoning),
-            };
-        });
+        return parsed
+            .filter((result) => {
+                if (result.duplicate_of !== null && result.duplicate_of !== result.index) {
+                    log.info(`Dropping duplicate story #${result.index} (same story as #${result.duplicate_of}): ${articles[result.index - 1]?.headline}`);
+                    return false;
+                }
+                return true;
+            })
+            .flatMap((result) => {
+                const original = articles[result.index - 1];
+                if (!original) {
+                    log.warning(`evaluateRelevance returned unknown article index ${result.index}, skipping`);
+                    return [];
+                }
+                return [
+                    {
+                        ...original,
+                        is_ai_relevant: result.is_ai_relevant,
+                        is_texas_relevant: result.is_texas_relevant,
+                        relevance_score: result.relevance_score,
+                        reasoning: removeEmDashes(result.reasoning),
+                    },
+                ];
+            });
     }
 
     async generateSummaries(articles: ArticleData[]): Promise<ArticleSummary[]> {
@@ -106,9 +121,8 @@ Generate a 2-3 sentence summary for each article below. The summaries should be 
 Articles:
 ${articleList}
 
-Respond with a JSON array. Each element must have:
-- "url": the article URL
-- "headline": the article headline
+Respond with a JSON array with one element per article, in the same order. Each element must have:
+- "index": the article's number from the list above
 - "summary": 2-3 sentence engaging summary (50-500 characters)
 
 Return ONLY the JSON array, no other text.`,
@@ -123,12 +137,18 @@ Return ONLY the JSON array, no other text.`,
         const jsonArray = this.extractJsonArray(text);
         const parsed = ArticleSummaryArraySchema.parse(jsonArray);
 
-        return parsed.map((result) => {
-            const original = articles.find((a) => a.url === result.url);
-            return {
-                ...original!,
-                summary: removeEmDashes(result.summary),
-            };
+        return parsed.flatMap((result) => {
+            const original = articles[result.index - 1];
+            if (!original) {
+                log.warning(`generateSummaries returned unknown article index ${result.index}, skipping`);
+                return [];
+            }
+            return [
+                {
+                    ...original,
+                    summary: removeEmDashes(result.summary),
+                },
+            ];
         });
     }
 
@@ -176,12 +196,18 @@ Return ONLY the JSON object, no other text.`,
         };
     }
 
-    async filterEventRelevance(events: EventData[]): Promise<EventData[]> {
+    /**
+     * Score each event's relevance 0-100. Returns scores aligned to the input
+     * order (missing/invalid entries default to 0). Scoring instead of a
+     * binary keep/reject lets the caller backfill from the next tier when the
+     * strict tier yields too few events.
+     */
+    async scoreEventRelevance(events: EventData[]): Promise<number[]> {
         const eventList = events
-            .map(
-                (e, i) =>
-                    `${i + 1}. Title: ${e.title}\n   Description: ${e.description || 'N/A'}\n   Location: ${e.venue_name || ''} ${e.city || ''} ${e.state || ''}`,
-            )
+            .map((e, i) => {
+                const description = e.description ? e.description.slice(0, 1200) : 'N/A';
+                return `${i + 1}. Title: ${e.title}\n   Description: ${description}\n   Location: ${e.venue_name || ''} ${e.city || ''} ${e.state || ''}`;
+            })
             .join('\n\n');
 
         const response = await this.client.messages.create({
@@ -190,31 +216,41 @@ Return ONLY the JSON object, no other text.`,
             messages: [
                 {
                     role: 'user',
-                    content: `You are a content curator for the AITX Community Weekly newsletter.
+                    content: `You are a content curator for the AITX Community Weekly newsletter, which features in-person Texas events for the AI community.
 
-Filter the following events to keep ONLY those relevant to AI, technology, data science, machine learning, software engineering, or the broader tech community.
+Score each event below from 0 to 100 for how relevant it is to an audience of AI practitioners, builders, and enthusiasts:
+
+- 80-100: AI, machine learning, generative AI, AI agents, data science, or AI engineering is the central topic (e.g. AI meetup, LLM workshop, ML paper club, AI hackathon).
+- 50-79: AI-adjacent — a tech, robotics, developer, or data event where AI is a significant but not sole focus, or the community substantially overlaps with the AI community.
+- 20-49: General technology, startup, or founder event where AI is incidental or only briefly mentioned.
+- 0-19: Unrelated (wellness, HR, writing, purely social, or non-tech networking events; events where AI is absent).
 
 Events:
 ${eventList}
 
-Respond with a JSON array of the event numbers to keep. For example: [1, 3]
+Respond with a JSON array with one element per event, in the same order. Each element must have:
+- "index": the event's number from the list above
+- "score": number 0-100
 
 Return ONLY the JSON array, no other text.`,
                 },
             ],
         });
 
-        this.logUsage('filterEventRelevance', response.usage);
+        this.logUsage('scoreEventRelevance', response.usage);
         await rateLimitDelay();
 
         const text = this.extractText(response);
         const jsonArray = this.extractJsonArray(text);
-        const indexes = jsonArray
-            .map((value) => Number(value))
-            .filter((value) => Number.isInteger(value) && value >= 1 && value <= events.length);
-        const keep = new Set(indexes.map((value) => value - 1));
+        const parsed = EventScoreArraySchema.parse(jsonArray);
 
-        return events.filter((_, index) => keep.has(index)).slice(0, 8);
+        const scores = new Array<number>(events.length).fill(0);
+        for (const result of parsed) {
+            if (result.index >= 1 && result.index <= events.length) {
+                scores[result.index - 1] = result.score;
+            }
+        }
+        return scores;
     }
 
     async summarizeLumaDescription(descriptionContent: unknown): Promise<string> {

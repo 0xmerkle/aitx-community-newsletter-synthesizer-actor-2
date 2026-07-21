@@ -20,10 +20,12 @@ export interface EventData {
     source?: string;
     title: string;
     url?: string;
+    luma_event_api_id?: string;
     start_date?: string;
     end_date?: string;
     start_time?: string;
     end_time?: string;
+    timezone?: string;
     location?: string;
     venue_name?: string;
     city?: string;

@@ -3,14 +3,17 @@ const CENTRAL_TIME_ZONE = 'America/Chicago';
 export function parseEventDate(value?: string): Date | null {
     if (!value) return null;
 
-    const parsed = new Date(value);
-    if (!Number.isNaN(parsed.getTime())) return parsed;
-
+    // Date-only values must be checked BEFORE new Date(): new Date("2026-07-29")
+    // yields UTC midnight, which is the previous day in Central time. Anchoring
+    // to UTC noon keeps the calendar day stable in any US timezone.
     const dateOnly = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (dateOnly) {
         const [, year, month, day] = dateOnly;
         return new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 12));
     }
+
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
 
     return null;
 }

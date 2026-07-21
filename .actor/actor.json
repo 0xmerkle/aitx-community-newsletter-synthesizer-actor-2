@@ -1,7 +1,7 @@
 {
     "actorSpecification": 1,
-    "name": "aitx-community-newsletter-synthesizer-demo",
-    "title": "Demo - AITX Community Newsletter Synthesizer",
+    "name": "aitx-community-newsletter-synthesizer-actor-2",
+    "title": "AITX Community Newsletter Synthesizer Actor 2",
     "description": "Processes articles and events from Actor 1's dataset through Claude AI, Notion, and Lu.ma APIs to produce a publication-ready newsletter draft.",
     "version": "1.0",
     "meta": {

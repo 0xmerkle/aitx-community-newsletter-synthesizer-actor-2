@@ -31,15 +31,13 @@ export function extractSlugFromUrl(url: string): string | null {
 }
 
 export async function enrichFromLuma(event: EventData): Promise<{ event: EventData; descriptionContent?: unknown }> {
-    if (!event.url) return { event };
-
-    const slug = extractSlugFromUrl(event.url);
-    if (!slug) return { event };
+    const eventApiId = event.luma_event_api_id || (event.url ? extractSlugFromUrl(event.url) : null);
+    if (!eventApiId) return { event };
 
     try {
-        const response = await fetch(`https://api.lu.ma/event/get?event_api_id=${slug}`);
+        const response = await fetch(`https://api2.luma.com/event/get?event_api_id=${eventApiId}`);
         if (!response.ok) {
-            log.warning(`Lu.ma API returned ${response.status} for slug: ${slug}`);
+            log.warning(`Lu.ma API returned ${response.status} for event API ID: ${eventApiId}`);
             return { event };
         }
 
@@ -77,6 +75,7 @@ export async function enrichFromLuma(event: EventData): Promise<{ event: EventDa
 
         if (lumaEvent.description_mirror?.content) {
             descriptionContent = lumaEvent.description_mirror.content;
+            enriched.description = enriched.description || extractTextFromProseMirror(descriptionContent);
         }
 
         return { event: enriched, descriptionContent };
@@ -104,4 +103,36 @@ function formatTimePart(date: Date, timezone: string): string {
         hour12: false,
     });
     return formatter.format(date);
+}
+
+function extractTextFromProseMirror(content: unknown): string {
+    const chunks: string[] = [];
+
+    collectText(content, chunks);
+
+    return chunks
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 3000);
+}
+
+function collectText(value: unknown, chunks: string[]): void {
+    if (!value || chunks.join(' ').length > 3000) return;
+
+    if (typeof value === 'string') {
+        chunks.push(value);
+        return;
+    }
+
+    if (Array.isArray(value)) {
+        for (const item of value) collectText(item, chunks);
+        return;
+    }
+
+    if (typeof value !== 'object') return;
+
+    const record = value as Record<string, unknown>;
+    if (typeof record.text === 'string') chunks.push(record.text);
+    if (record.content) collectText(record.content, chunks);
 }

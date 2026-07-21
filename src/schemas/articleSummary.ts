@@ -1,8 +1,7 @@
 import { z } from 'zod';
 
 export const ArticleSummarySchema = z.object({
-    url: z.string(),
-    headline: z.string().optional(),
+    index: z.number().int().min(1),
     summary: z.string().min(50).max(500),
 });
 
