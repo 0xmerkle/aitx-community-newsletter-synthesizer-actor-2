@@ -12,8 +12,8 @@
         "topStoriesCount": {
             "title": "Top Stories Count",
             "type": "integer",
-            "description": "Number of top stories to feature in the newsletter.",
-            "default": 3,
+            "description": "Number of top stories to feature in the newsletter. Extras beyond what you publish serve as ready-made backups.",
+            "default": 5,
             "minimum": 1,
             "maximum": 10
         },

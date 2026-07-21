@@ -34,7 +34,7 @@ try {
     if (!input.datasetId) {
         throw new Error('Missing required input: "datasetId"');
     }
-    const topStoriesCount = input.topStoriesCount ?? 3;
+    const topStoriesCount = input.topStoriesCount ?? 5;
 
     const claudeService = new AnthropicService();
     const notionService = new NotionService();
