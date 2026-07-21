@@ -32,6 +32,8 @@ export interface EventData {
     state?: string;
     description?: string;
     is_virtual?: boolean;
+    /** Topic/category tags from the source platform (e.g. Lu.ma "AI" category, Meetup topics) */
+    categories?: string[];
 }
 
 export interface RelevantArticle extends ArticleData {

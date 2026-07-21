@@ -206,7 +206,8 @@ Return ONLY the JSON object, no other text.`,
         const eventList = events
             .map((e, i) => {
                 const description = e.description ? e.description.slice(0, 1200) : 'N/A';
-                return `${i + 1}. Title: ${e.title}\n   Description: ${description}\n   Location: ${e.venue_name || ''} ${e.city || ''} ${e.state || ''}`;
+                const categories = e.categories && e.categories.length > 0 ? e.categories.join(', ') : 'N/A';
+                return `${i + 1}. Title: ${e.title}\n   Platform categories/topics: ${categories}\n   Description: ${description}\n   Location: ${e.venue_name || ''} ${e.city || ''} ${e.state || ''}`;
             })
             .join('\n\n');
 
@@ -218,7 +219,7 @@ Return ONLY the JSON object, no other text.`,
                     role: 'user',
                     content: `You are a content curator for the AITX Community Weekly newsletter, which features in-person Texas events for the AI community.
 
-Score each event below from 0 to 100 for how relevant it is to an audience of AI practitioners, builders, and enthusiasts:
+Score each event below from 0 to 100 for how relevant it is to an audience of AI practitioners, builders, and enthusiasts. Platform categories/topics are assigned by the event platform (Lu.ma or Meetup) and are a strong signal — an event tagged "AI" or with AI/ML topics should score high unless the title/description clearly contradicts it:
 
 - 80-100: AI, machine learning, generative AI, AI agents, data science, or AI engineering is the central topic (e.g. AI meetup, LLM workshop, ML paper club, AI hackathon).
 - 50-79: AI-adjacent — a tech, robotics, developer, or data event where AI is a significant but not sole focus, or the community substantially overlaps with the AI community.
@@ -253,23 +254,25 @@ Return ONLY the JSON array, no other text.`,
         return scores;
     }
 
-    async summarizeLumaDescription(descriptionContent: unknown): Promise<string> {
+    async summarizeEventDescription(description: unknown): Promise<string> {
+        const text = typeof description === 'string' ? description : JSON.stringify(description);
+
         const response = await this.client.messages.create({
             model: CONFIG.CLAUDE_HAIKU_MODEL,
             max_tokens: 200,
             messages: [
                 {
                     role: 'user',
-                    content: `Summarize the following event description (ProseMirror JSON format) into 1-2 clear sentences:
+                    content: `Summarize the following event description into 1-2 clear, engaging sentences for a newsletter event listing:
 
-${JSON.stringify(descriptionContent)}
+${text.slice(0, 4000)}
 
 Return ONLY the summary text, no JSON formatting.`,
                 },
             ],
         });
 
-        this.logUsage('summarizeLumaDescription (Haiku)', response.usage);
+        this.logUsage('summarizeEventDescription (Haiku)', response.usage);
         await rateLimitDelay();
 
         return removeEmDashes(this.extractText(response));

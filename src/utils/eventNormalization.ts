@@ -45,5 +45,8 @@ export function normalizeEvent(rawItem: Record<string, unknown>): EventData {
         state: (rawItem.state as string) || (rawItem.region as string) || undefined,
         description: (rawItem.description as string) || undefined,
         is_virtual: resolveVirtual(rawItem),
+        categories: Array.isArray(rawItem.categories)
+            ? (rawItem.categories as unknown[]).filter((c): c is string => typeof c === 'string')
+            : undefined,
     };
 }

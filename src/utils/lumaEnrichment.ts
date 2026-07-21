@@ -10,14 +10,18 @@ interface LumaEventResponse {
         geo_address_info?: {
             address?: string;
             full_address?: string;
+            short_address?: string;
             city?: string;
             region?: string;
         };
         location_type?: string;
-        description_mirror?: {
-            content?: unknown;
-        };
     };
+    // description_mirror and categories live at the TOP level of the
+    // event/get response, alongside `event` — not nested under it.
+    description_mirror?: {
+        content?: unknown;
+    };
+    categories?: { api_id?: string; name?: string; slug?: string }[];
 }
 
 export function extractSlugFromUrl(url: string): string | null {
@@ -64,7 +68,7 @@ export async function enrichFromLuma(event: EventData): Promise<{ event: EventDa
         if (lumaEvent.geo_address_info) {
             const geo = lumaEvent.geo_address_info;
             enriched.venue_name = enriched.venue_name || geo.address || undefined;
-            enriched.location = enriched.location || geo.full_address || undefined;
+            enriched.location = enriched.location || geo.short_address || geo.full_address || undefined;
             enriched.city = enriched.city || geo.city || undefined;
             enriched.state = enriched.state || geo.region || undefined;
         }
@@ -73,8 +77,15 @@ export async function enrichFromLuma(event: EventData): Promise<{ event: EventDa
             enriched.is_virtual = true;
         }
 
-        if (lumaEvent.description_mirror?.content) {
-            descriptionContent = lumaEvent.description_mirror.content;
+        if (Array.isArray(data.categories) && data.categories.length > 0) {
+            const names = data.categories.map((c) => c.name).filter((n): n is string => Boolean(n));
+            if (names.length > 0) {
+                enriched.categories = names;
+            }
+        }
+
+        if (data.description_mirror?.content) {
+            descriptionContent = data.description_mirror.content;
             enriched.description = enriched.description || extractTextFromProseMirror(descriptionContent);
         }
 

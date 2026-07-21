@@ -14,6 +14,8 @@ const STRICT_SCORE = 70;
 const BACKFILL_SCORE = 40;
 const MIN_EVENTS = 5;
 const MAX_EVENTS = 8;
+// Descriptions longer than this get Haiku-summarized for the newsletter
+const MAX_DISPLAY_DESCRIPTION = 400;
 
 export async function filterEvents(events: EventData[], claudeService: AnthropicService): Promise<FilteredEvent[]> {
     log.info(`Step 6: Filtering ${events.length} events...`);
@@ -61,28 +63,14 @@ export async function filterEvents(events: EventData[], claudeService: Anthropic
     });
     log.info(`After virtual filter: ${filtered.length} events`);
 
-    // Pass 3: Lu.ma enrichment before AI relevance, so Claude can evaluate descriptions.
+    // Pass 3: Lu.ma enrichment before AI relevance, so scoring sees full
+    // descriptions and platform categories. Display summarization happens
+    // after selection, on the few events that make the cut.
     const enriched: EventData[] = [];
     for (const event of filtered) {
         if (event.source === 'luma' || event.source === 'lu.ma' || (event.url && event.url.includes('lu.ma'))) {
             const result = await enrichFromLuma(event);
-            let enrichedEvent = result.event;
-
-            // Summarize Lu.ma ProseMirror description if available and event has no description
-            if (result.descriptionContent && !enrichedEvent.description) {
-                try {
-                    enrichedEvent = {
-                        ...enrichedEvent,
-                        description: await claudeService.summarizeLumaDescription(result.descriptionContent),
-                    };
-                } catch (error) {
-                    log.warning(`Failed to summarize Lu.ma description for: ${event.title}`, {
-                        error: String(error),
-                    });
-                }
-            }
-
-            enriched.push(enrichedEvent);
+            enriched.push(result.event);
             continue;
         }
         enriched.push(event);
@@ -116,7 +104,22 @@ export async function filterEvents(events: EventData[], claudeService: Anthropic
     // Pass 6: AI relevance scoring with tiered selection
     const selected = await selectByRelevance(deduped, claudeService);
 
-    // Pass 7: Sort by start date and format to FilteredEvent
+    // Pass 7: Summarize long descriptions for display (full text was kept
+    // until now so relevance scoring had maximum signal)
+    for (const event of selected) {
+        if (event.description && event.description.length > MAX_DISPLAY_DESCRIPTION) {
+            try {
+                event.description = await claudeService.summarizeEventDescription(event.description);
+            } catch (error) {
+                log.warning(`Failed to summarize description for: ${event.title}, truncating instead`, {
+                    error: String(error),
+                });
+                event.description = `${event.description.slice(0, MAX_DISPLAY_DESCRIPTION)}...`;
+            }
+        }
+    }
+
+    // Pass 8: Sort by start date and format to FilteredEvent
     const formatted: FilteredEvent[] = selected
         .sort((a, b) => (parseEventDate(a.start_date)?.getTime() ?? 0) - (parseEventDate(b.start_date)?.getTime() ?? 0))
         .map((e) => {
@@ -151,7 +154,16 @@ async function selectByRelevance(events: EventData[], claudeService: AnthropicSe
         return events.slice(0, MAX_EVENTS);
     }
 
-    const scored = events.map((event, i) => ({ event, score: scores[i] ?? 0 }));
+    // Deterministic floor: Lu.ma's official "AI" category tag guarantees the
+    // strict tier regardless of how the model scored it.
+    const scored = events.map((event, i) => {
+        let score = scores[i] ?? 0;
+        if (hasAiCategory(event) && score < STRICT_SCORE) {
+            log.info(`Boosting "${event.title}" to strict tier: platform tagged it AI (model scored ${score})`);
+            score = STRICT_SCORE;
+        }
+        return { event, score };
+    });
 
     const strict = scored.filter((s) => s.score >= STRICT_SCORE);
     let selected = strict;
@@ -176,6 +188,10 @@ async function selectByRelevance(events: EventData[], claudeService: AnthropicSe
     });
 
     return selected.map((s) => s.event);
+}
+
+function hasAiCategory(event: EventData): boolean {
+    return (event.categories ?? []).some((c) => c.trim().toLowerCase() === 'ai');
 }
 
 function formatWhere(event: EventData): string {
