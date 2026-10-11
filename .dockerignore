@@ -13,3 +13,8 @@ node_modules
 
 # git folder
 .git
+
+# local secrets and test data
+.env
+.env.*
+!.env.example

@@ -1,113 +1,127 @@
 import log from '@apify/log';
 
 import type { AnthropicService } from '../services/anthropic.js';
-import type { EventData, FilteredEvent } from '../types.js';
+import type { Judge } from '../services/judge.js';
+import type { EventData, FilteredEvent, Rejection } from '../types.js';
 import { formatEventDateTime } from '../utils/dateFormatting.js';
-import { getCentralDateKey, getNewsletterCutoffDateKey, parseEventDate } from '../utils/eventDate.js';
+import { addDaysToDateKey, getCentralDateKey, getNewsletterCutoffDateKey, parseEventDate } from '../utils/eventDate.js';
 import { enrichFromLuma } from '../utils/lumaEnrichment.js';
-import { removeEmDashes } from '../utils/textFormatting.js';
+import { cleanCopy } from '../utils/textFormatting.js';
 
-// Events scoring at or above STRICT_SCORE are always kept. If that yields
-// fewer than MIN_EVENTS, backfill from AI-adjacent events (>= BACKFILL_SCORE)
-// so the newsletter always has enough events when the scrapers found any.
-const STRICT_SCORE = 70;
-const BACKFILL_SCORE = 40;
-const MIN_EVENTS = 5;
-const MAX_EVENTS = 8;
-// Descriptions longer than this get Haiku-summarized for the newsletter
-const MAX_DISPLAY_DESCRIPTION = 400;
+// Events from the issue date through the following week.
+const EVENT_WINDOW_DAYS = 7;
+// No minimum and no backfill: an event is listed only if it passes every check.
+const MAX_EVENTS = 12;
+// Fallback length when a description can't be summarized
+const MAX_DISPLAY_DESCRIPTION = 300;
+// Title token overlap at which two same-day events count as the same listing
+const DUPLICATE_TITLE_SIMILARITY = 0.6;
 
-export async function filterEvents(events: EventData[], claudeService: AnthropicService): Promise<FilteredEvent[]> {
+const TEXAS_STATE_VALUES = new Set(['tx', 'texas']);
+
+export async function filterEvents(
+    events: EventData[],
+    claudeService: AnthropicService,
+    judge: Judge,
+): Promise<{ events: FilteredEvent[]; rejected: Rejection[] }> {
     log.info(`Step 6: Filtering ${events.length} events...`);
+    const rejected: Rejection[] = [];
+    const reject = (e: EventData, reason: string) => {
+        rejected.push({ kind: 'event', title: e.title, url: e.url, reason });
+        log.debug(`Rejected event "${e.title}": ${reason}`);
+    };
 
-    // Pass 1: Date filter - only events on or after the next newsletter date.
-    // If the actor runs on Friday, same-day events remain eligible.
-    const cutoffDateKey = getNewsletterCutoffDateKey();
-    let missingDateCount = 0;
-    let beforeCutoffCount = 0;
-
+    // Pass 1: Date window - from the issue date (Friday) through the next week.
+    const startKey = getNewsletterCutoffDateKey();
+    const endKey = addDaysToDateKey(startKey, EVENT_WINDOW_DAYS);
+    let outsideWindow = 0;
     let filtered = events.filter((e) => {
         const startDate = parseEventDate(e.start_date);
         if (!startDate) {
-            missingDateCount++;
-            log.debug(`Skipping event without start_date: ${e.title}`);
+            reject(e, 'No start date');
             return false;
         }
-
-        const eventDateKey = getCentralDateKey(startDate);
-        if (eventDateKey < cutoffDateKey) {
-            beforeCutoffCount++;
-            log.debug(`Skipping event before newsletter cutoff: ${e.title}`, {
-                startDate: e.start_date,
-                eventDateKey,
-                cutoffDateKey,
-            });
+        const key = getCentralDateKey(startDate);
+        // Out-of-window events aren't logged as rejections: they're expected and would bury the useful ones.
+        if (key < startKey || key > endKey) {
+            outsideWindow++;
             return false;
         }
-
         return true;
     });
-    log.info(`After date filter (>= ${cutoffDateKey}): ${filtered.length} events`, {
-        input: events.length,
-        missingDate: missingDateCount,
-        beforeCutoff: beforeCutoffCount,
-    });
+    log.info(`After date window (${startKey} to ${endKey}): ${filtered.length} events (${outsideWindow} outside window)`);
 
-    // Pass 2: Virtual filter - skip virtual events
+    // Pass 2: Known-virtual events
     filtered = filtered.filter((e) => {
         if (e.is_virtual === true) {
-            log.debug(`Skipping virtual event: ${e.title}`);
+            reject(e, 'Online event');
             return false;
         }
         return true;
     });
-    log.info(`After virtual filter: ${filtered.length} events`);
 
-    // Pass 3: Lu.ma enrichment before AI relevance, so scoring sees full
-    // descriptions and platform categories. Display summarization happens
-    // after selection, on the few events that make the cut.
+    // Pass 3: Lu.ma enrichment so the checks below see full descriptions and locations
     const enriched: EventData[] = [];
     for (const event of filtered) {
         if (event.source === 'luma' || event.source === 'lu.ma' || (event.url && event.url.includes('lu.ma'))) {
-            const result = await enrichFromLuma(event);
-            enriched.push(result.event);
+            enriched.push((await enrichFromLuma(event)).event);
             continue;
         }
         enriched.push(event);
     }
-    log.info(`After Lu.ma enrichment: ${enriched.length} events`);
 
-    // Pass 4: Location filter post-enrichment, before selection so backfill
-    // only considers events we can actually print a "Where" for.
-    const withLocation = enriched.filter((e) => {
-        const hasLocation = !!(e.venue_name || e.location || e.city);
-        if (!hasLocation) {
-            log.debug(`Skipping event without location: ${e.title}`);
-        }
-        return hasLocation;
-    });
-    log.info(`After location filter: ${withLocation.length} events`);
-
-    // Pass 5: Title dedup - the same event is sometimes listed on both Lu.ma and Meetup
-    const seenTitles = new Set<string>();
-    const deduped = withLocation.filter((e) => {
-        const key = e.title.toLowerCase().replace(/\s+/g, ' ').trim();
-        if (seenTitles.has(key)) {
-            log.debug(`Skipping duplicate event title: ${e.title}`);
+    // Pass 4: Hard location checks. A known non-Texas state is rejected outright;
+    // unknown states go to the classifier, which sees the full address.
+    const located = enriched.filter((e) => {
+        if (e.is_virtual === true) {
+            reject(e, 'Online event');
             return false;
         }
-        seenTitles.add(key);
+        const state = e.state?.trim().toLowerCase();
+        if (state && !TEXAS_STATE_VALUES.has(state)) {
+            reject(e, `Not in Texas (${e.city ? `${e.city}, ` : ''}${e.state})`);
+            return false;
+        }
+        if (!(e.venue_name || e.location || e.city)) {
+            reject(e, 'No location listed');
+            return false;
+        }
         return true;
     });
-    log.info(`After title dedup: ${deduped.length} events`);
+    log.info(`After location checks: ${located.length} events`);
 
-    // Pass 6: AI relevance scoring with tiered selection
-    const selected = await selectByRelevance(deduped, claudeService);
+    // Pass 5: Dedup across Lu.ma and Meetup. Same day + similar title = same event.
+    // Lu.ma is scraped first, so its listing wins.
+    const kept: { event: EventData; day: string; tokens: Set<string> }[] = [];
+    for (const event of located) {
+        const day = getCentralDateKey(parseEventDate(event.start_date)!);
+        const tokens = titleTokens(event.title);
+        const dup = kept.find((k) => k.day === day && similarity(k.tokens, tokens) >= DUPLICATE_TITLE_SIMILARITY);
+        if (dup) {
+            reject(event, `Duplicate of "${dup.event.title}"`);
+            continue;
+        }
+        kept.push({ event, day, tokens });
+    }
+    const deduped = kept.map((k) => k.event);
+    log.info(`After dedup: ${deduped.length} events`);
 
-    // Pass 7: Summarize long descriptions for display (full text was kept
-    // until now so relevance scoring had maximum signal)
+    // Pass 6: Texas / in person / AI-focused, as three separate yes/no checks
+    const passed = await selectByClassification(deduped, judge, reject);
+
+    // Pass 7: Cap. Keep the most builder-relevant events, then list them by date.
+    const startTime = (e: EventData) => parseEventDate(e.start_date)?.getTime() ?? 0;
+    passed.sort((a, b) => b.fit - a.fit || startTime(a.event) - startTime(b.event));
+    for (const extra of passed.splice(MAX_EVENTS)) {
+        reject(extra.event, `Passed every check but over the ${MAX_EVENTS}-event cap (builder fit ${extra.fit}/5)`);
+    }
+    const selected = passed.map((p) => p.event).sort((a, b) => startTime(a) - startTime(b));
+
+    // Pass 8: Summarize long descriptions for display
     for (const event of selected) {
-        if (event.description && event.description.length > MAX_DISPLAY_DESCRIPTION) {
+        // Every description is rewritten, not just long ones: organizer copy is
+        // written in their voice ("join us as we...") and reads as if we host it.
+        if (event.description) {
             try {
                 event.description = await claudeService.summarizeEventDescription(event.description);
             } catch (error) {
@@ -119,79 +133,78 @@ export async function filterEvents(events: EventData[], claudeService: Anthropic
         }
     }
 
-    // Pass 8: Sort by start date and format to FilteredEvent
-    const formatted: FilteredEvent[] = selected
-        .sort((a, b) => (parseEventDate(a.start_date)?.getTime() ?? 0) - (parseEventDate(b.start_date)?.getTime() ?? 0))
-        .map((e) => {
-            log.info(`Formatting event: "${e.title}" | raw date="${e.start_date}" start_time="${e.start_time}" end_time="${e.end_time}" tz="${e.timezone}"`);
-            return {
-                title: e.title,
-                url: e.url,
-                when: formatEventDateTime({
-                    start_date: e.start_date!,
-                    end_date: e.end_date,
-                    start_time: e.start_time,
-                    end_time: e.end_time,
-                    timezone: e.timezone,
-                }),
-                where: formatWhere(e),
-                what: removeEmDashes(e.description || e.title),
-            };
-        });
+    const formatted: FilteredEvent[] = selected.map((e) => ({
+        title: cleanCopy(e.title),
+        url: e.url,
+        when: formatEventDateTime({
+            start_date: e.start_date!,
+            end_date: e.end_date,
+            start_time: e.start_time,
+            end_time: e.end_time,
+            timezone: e.timezone,
+        }),
+        where: formatWhere(e),
+        what: cleanCopy(e.description || e.title),
+    }));
 
-    log.info(`Step 6 complete: ${formatted.length} events after all filters.`);
-    return formatted;
+    log.info(`Step 6 complete: ${formatted.length} events kept, ${rejected.length} rejected.`);
+    return { events: formatted, rejected };
 }
 
-async function selectByRelevance(events: EventData[], claudeService: AnthropicService): Promise<EventData[]> {
+async function selectByClassification(
+    events: EventData[],
+    judge: Judge,
+    reject: (e: EventData, reason: string) => void,
+): Promise<{ event: EventData; fit: number }[]> {
     if (events.length === 0) return [];
 
-    let scores: number[];
+    let decisions;
     try {
-        scores = await claudeService.scoreEventRelevance(events);
+        decisions = await judge.classifyEvents(events);
     } catch (error) {
-        log.warning('AI event relevance scoring failed, using all events', { error: String(error) });
-        return events.slice(0, MAX_EVENTS);
+        // Fail closed: listing unchecked events is worse than an empty section.
+        log.error('Event classification failed; no events will be listed', { error: String(error) });
+        for (const e of events) reject(e, `Not checked: classifier failed (${String(error).slice(0, 120)})`);
+        return [];
     }
 
-    // Deterministic floor: Lu.ma's official "AI" category tag guarantees the
-    // strict tier regardless of how the model scored it.
-    const scored = events.map((event, i) => {
-        let score = scores[i] ?? 0;
-        if (hasAiCategory(event) && score < STRICT_SCORE) {
-            log.info(`Boosting "${event.title}" to strict tier: platform tagged it AI (model scored ${score})`);
-            score = STRICT_SCORE;
+    return events.flatMap((event, i) => {
+        const d = decisions[i];
+        if (!d) {
+            reject(event, 'Classifier returned no decision');
+            return [];
         }
-        return { event, score };
-    });
-
-    const strict = scored.filter((s) => s.score >= STRICT_SCORE);
-    let selected = strict;
-
-    if (strict.length < MIN_EVENTS) {
-        const backfill = scored
-            .filter((s) => s.score >= BACKFILL_SCORE && s.score < STRICT_SCORE)
-            .sort((a, b) => b.score - a.score)
-            .slice(0, MIN_EVENTS - strict.length);
-        if (backfill.length > 0) {
-            log.info(
-                `Only ${strict.length} events scored >= ${STRICT_SCORE}, backfilling ${backfill.length} AI-adjacent events`,
-                { backfillTitles: backfill.map((s) => `${s.event.title} (${s.score})`) },
-            );
+        const failed = [
+            !d.is_in_texas && 'not in Texas',
+            !d.is_in_person && 'not in person',
+            !d.ai_is_main_topic && 'AI is not the main topic',
+        ].filter(Boolean);
+        if (failed.length > 0) {
+            reject(event, `${failed.join('; ')}. ${d.reason}`);
+            return [];
         }
-        selected = [...strict, ...backfill];
-    }
-
-    selected = selected.sort((a, b) => b.score - a.score).slice(0, MAX_EVENTS);
-    log.info(`After AI relevance selection: ${selected.length} events`, {
-        scores: scored.map((s) => `${s.event.title}: ${s.score}`),
+        return [{ event, fit: d.builder_fit }];
     });
-
-    return selected.map((s) => s.event);
 }
 
-function hasAiCategory(event: EventData): boolean {
-    return (event.categories ?? []).some((c) => c.trim().toLowerCase() === 'ai');
+function titleTokens(title: string): Set<string> {
+    const stop = new Set(['the', 'a', 'an', 'and', 'of', 'for', 'in', 'at', 'on', 'with', 'to', 'x']);
+    return new Set(
+        title
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .split(/\s+/)
+            .filter((t) => t.length > 1 && !stop.has(t)),
+    );
+}
+
+function similarity(a: Set<string>, b: Set<string>): number {
+    if (a.size === 0 || b.size === 0) return 0;
+    let shared = 0;
+    for (const t of a) if (b.has(t)) shared++;
+    // Jaccard: "Austin AI Meetup" vs "Austin AI Meetup: Demos" = 0.75 (dup),
+    // "Austin AI Meetup" vs "Austin AI Hackathon" = 0.5 (different events)
+    return shared / (a.size + b.size - shared);
 }
 
 function formatWhere(event: EventData): string {

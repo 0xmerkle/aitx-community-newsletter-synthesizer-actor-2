@@ -53,7 +53,8 @@ export function formatEventDateTime(event: EventDateTimeParts): string {
             return dayPart;
         }
 
-        const tzAbbreviation = getTimeZoneAbbreviation(startDate, tz);
+        // Brand format is "6:00 PM CT": drop the daylight/standard letter (CDT/CST -> CT)
+        const tzAbbreviation = getTimeZoneAbbreviation(startDate, tz).replace(/^([A-Z])[DS]T$/, '$1T');
         return endTime
             ? `${dayPart} | ${startTime} - ${endTime} ${tzAbbreviation}`
             : `${dayPart} | ${startTime} ${tzAbbreviation}`;

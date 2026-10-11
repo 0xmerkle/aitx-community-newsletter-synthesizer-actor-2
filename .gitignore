@@ -12,3 +12,7 @@ storage
 # Added by Apify CLI
 .venv
 .env
+# local secrets and test data
+.env
+.env.*
+!.env.example

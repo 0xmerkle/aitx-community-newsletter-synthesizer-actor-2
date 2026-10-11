@@ -59,3 +59,10 @@ function getCentralDayIndex(date: Date): number {
 
     return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(day);
 }
+
+/** Add whole days to a YYYY-MM-DD key. */
+export function addDaysToDateKey(dateKey: string, days: number): string {
+    const [year, month, day] = dateKey.split('-').map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day + days, 12));
+    return date.toISOString().slice(0, 10);
+}

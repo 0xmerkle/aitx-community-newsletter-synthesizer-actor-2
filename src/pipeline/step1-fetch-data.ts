@@ -1,3 +1,6 @@
+import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
+
 import { Actor } from 'apify';
 import { ApifyClient } from 'apify-client';
 
@@ -7,16 +10,31 @@ import type { ArticleData, EventData } from '../types.js';
 import { normalizeEvent } from '../utils/eventNormalization.js';
 import { normalizeUrl } from '../utils/urlNormalization.js';
 
-export async function fetchData(datasetId: string): Promise<{ articles: ArticleData[]; events: EventData[] }> {
-    log.info('Step 1: Fetching data from dataset...', { datasetId });
+// Local testing: "local:<path to actor 1's storage/datasets/default>"
+const LOCAL_PREFIX = 'local:';
 
+async function readCloudDataset(datasetId: string): Promise<unknown[]> {
     const token = process.env.APIFY_TOKEN || Actor.getEnv().token;
     if (!token) {
         throw new Error('APIFY_TOKEN is not set. Required to access cloud datasets. Add it to .env or .env.local');
     }
-    log.debug('Using Apify token to fetch dataset', { tokenPrefix: token.slice(0, 10) });
     const client = new ApifyClient({ token });
     const { items } = await client.dataset(datasetId).listItems();
+    return items;
+}
+
+async function readLocalDataset(dir: string): Promise<unknown[]> {
+    const files = (await readdir(dir)).filter((f) => f.endsWith('.json')).sort();
+    log.info(`Reading ${files.length} items from local dataset ${dir}`);
+    return Promise.all(files.map(async (f) => JSON.parse(await readFile(path.join(dir, f), 'utf8')) as unknown));
+}
+
+export async function fetchData(datasetId: string): Promise<{ articles: ArticleData[]; events: EventData[] }> {
+    log.info('Step 1: Fetching data from dataset...', { datasetId });
+
+    const items = datasetId.startsWith(LOCAL_PREFIX)
+        ? await readLocalDataset(datasetId.slice(LOCAL_PREFIX.length))
+        : await readCloudDataset(datasetId);
 
     log.info(`Fetched ${items.length} total items from dataset.`);
 

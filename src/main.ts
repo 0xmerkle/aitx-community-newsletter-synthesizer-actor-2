@@ -3,18 +3,21 @@ import { Actor } from 'apify';
 import log from '@apify/log';
 
 import { validateConfig } from './config.js';
+import { formatIssueDate } from './context.js';
 import { fetchData } from './pipeline/step1-fetch-data.js';
 import { filterRelevance } from './pipeline/step2-filter-relevance.js';
 import { generateSummaries } from './pipeline/step3-generate-summaries.js';
 import { generateStories } from './pipeline/step4-generate-stories.js';
-import { queryNotion } from './pipeline/step5-query-notion.js';
 import { filterEvents } from './pipeline/step6-filter-events.js';
 import { synthesizeMetadata } from './pipeline/step7-synthesize-metadata.js';
 import { saveOutput } from './pipeline/step8-save-output.js';
 import { AnthropicService } from './services/anthropic.js';
+import { JevService } from './services/jev.js';
+import type { Judge } from './services/judge.js';
 import { NotionService } from './services/notion.js';
 import type { ActorInput, NewsletterDraft, PipelineState } from './types.js';
 import { clearCheckpoint, loadCheckpoint, saveCheckpoint } from './utils/checkpoint.js';
+import { getNewsletterCutoffDateKey } from './utils/eventDate.js';
 
 await Actor.init();
 
@@ -35,9 +38,14 @@ try {
         throw new Error('Missing required input: "datasetId"');
     }
     const topStoriesCount = input.topStoriesCount ?? 5;
+    // The Friday this issue goes out, e.g. "Friday, October 16, 2026"
+    const issueDate = formatIssueDate(getNewsletterCutoffDateKey());
+    log.info(`Building issue for ${issueDate}`);
 
     const claudeService = new AnthropicService();
     const notionService = new NotionService();
+    const judge: Judge = input.judge === 'jev' ? new JevService(claudeService) : claudeService;
+    log.info(`Judging stories and events with ${input.judge === 'jev' ? 'TypeSafe Jev' : 'Claude'}`);
 
     // Load checkpoint or create fresh state. Do not reuse rawData from a different dataset.
     const checkpoint = await loadCheckpoint();
@@ -68,7 +76,9 @@ try {
 
     // Step 2: Filter relevance
     if (state.step < 2) {
-        state.relevantArticles = await filterRelevance(state.rawData!.articles, claudeService);
+        const { relevant, rejected } = await filterRelevance(state.rawData!.articles, judge, issueDate);
+        state.relevantArticles = relevant;
+        state.articleRejections = rejected;
         state.step = 2;
         state.stepName = 'relevance-filtered';
         await saveCheckpoint(state);
@@ -90,17 +100,13 @@ try {
         await saveCheckpoint(state);
     }
 
-    // Step 5: Query Notion
-    if (state.step < 5) {
-        state.notionData = await queryNotion(notionService);
-        state.step = 5;
-        state.stepName = 'notion-queried';
-        await saveCheckpoint(state);
-    }
+    // Step 5 (community highlights + initiatives from Notion) was removed 2026-10-10.
 
     // Step 6: Filter events
     if (state.step < 6) {
-        state.filteredEvents = await filterEvents(state.rawData!.events, claudeService);
+        const { events, rejected } = await filterEvents(state.rawData!.events, claudeService, judge);
+        state.filteredEvents = events;
+        state.eventRejections = rejected;
         state.step = 6;
         state.stepName = 'events-filtered';
         await saveCheckpoint(state);
@@ -111,11 +117,10 @@ try {
         state.metadata = await synthesizeMetadata(
             {
                 stories: state.topStories!,
-                communityHighlight: state.notionData?.highlights[0],
-                initiatives: state.notionData?.initiatives ?? [],
                 events: state.filteredEvents!,
             },
             claudeService,
+            issueDate,
         );
         state.step = 7;
         state.stepName = 'metadata-synthesized';
@@ -127,9 +132,8 @@ try {
         const newsletter: NewsletterDraft = {
             metadata: state.metadata!,
             stories: state.topStories!,
-            communityHighlight: state.notionData?.highlights[0],
-            initiatives: state.notionData?.initiatives ?? [],
             events: state.filteredEvents!,
+            rejections: [...(state.articleRejections ?? []), ...(state.eventRejections ?? [])],
             generatedAt: new Date().toISOString(),
             articlesCount: state.topStories!.length,
             eventsCount: state.filteredEvents!.length,

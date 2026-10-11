@@ -3,6 +3,8 @@ export interface ActorInput {
     topStoriesCount?: number;
     webhookUrl?: string;
     forceFresh?: boolean;
+    /** Which model makes the keep/drop decisions. Writing always uses Claude. */
+    judge?: 'claude' | 'jev';
 }
 
 export interface ArticleData {
@@ -13,6 +15,8 @@ export interface ArticleData {
     published_date?: string;
     source_name?: string;
     text_content?: string;
+    /** Specific Texas connection named by the relevance filter */
+    texas_connection?: string;
 }
 
 export interface EventData {
@@ -32,6 +36,11 @@ export interface EventData {
     state?: string;
     description?: string;
     is_virtual?: boolean;
+    host_name?: string;
+    /** Raw location type from the source platform (e.g. Lu.ma "offline" / "online") */
+    location_type?: string;
+    /** City we searched when we found this event (not necessarily where it is) */
+    search_city?: string;
     /** Topic/category tags from the source platform (e.g. Lu.ma "AI" category, Meetup topics) */
     categories?: string[];
 }
@@ -63,22 +72,12 @@ export interface FilteredEvent {
     what: string;
 }
 
-export interface CommunityHighlight {
-    id: string;
-    name: string;
-    bio: string;
-    achievement?: string;
-    linkedin_url?: string;
-}
-
-export interface Initiative {
-    id: string;
+/** An item the pipeline dropped, and why. Written to the Notion draft so the filtering is auditable. */
+export interface Rejection {
+    kind: 'article' | 'event';
     title: string;
-    description: string;
-    start_date?: string;
-    end_date?: string;
-    contact?: string;
     url?: string;
+    reason: string;
 }
 
 export interface NewsletterMetadata {
@@ -92,9 +91,8 @@ export interface NewsletterMetadata {
 export interface NewsletterDraft {
     metadata: NewsletterMetadata;
     stories: Story[];
-    communityHighlight?: CommunityHighlight;
-    initiatives: Initiative[];
     events: FilteredEvent[];
+    rejections: Rejection[];
     generatedAt: string;
     articlesCount: number;
     eventsCount: number;
@@ -108,9 +106,10 @@ export interface PipelineState {
     lastUpdated: string;
     rawData?: { articles: ArticleData[]; events: EventData[] };
     relevantArticles?: RelevantArticle[];
+    articleRejections?: Rejection[];
+    eventRejections?: Rejection[];
     summaries?: ArticleSummary[];
     topStories?: Story[];
-    notionData?: { highlights: CommunityHighlight[]; initiatives: Initiative[] };
     filteredEvents?: FilteredEvent[];
     metadata?: NewsletterMetadata;
     notionPageUrl?: string;

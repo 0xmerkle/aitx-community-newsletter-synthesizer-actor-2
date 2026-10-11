@@ -45,6 +45,9 @@ export function normalizeEvent(rawItem: Record<string, unknown>): EventData {
         state: (rawItem.state as string) || (rawItem.region as string) || undefined,
         description: (rawItem.description as string) || undefined,
         is_virtual: resolveVirtual(rawItem),
+        host_name: (rawItem.host_name as string) || undefined,
+        location_type: (rawItem.location_type as string) || undefined,
+        search_city: (rawItem.search_city as string) || undefined,
         categories: Array.isArray(rawItem.categories)
             ? (rawItem.categories as unknown[]).filter((c): c is string => typeof c === 'string')
             : undefined,

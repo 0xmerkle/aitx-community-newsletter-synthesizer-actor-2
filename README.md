@@ -10,7 +10,7 @@ Takes a Dataset of articles and events from the [Newsletter Digest Scraper](http
 2. **Filters events** with the same relevance scoring (40+ events → ~8)
 3. **Enriches Lu.ma events** via the individual event API for full descriptions
 4. **Summarizes** event descriptions using Claude Haiku (Lu.ma stores descriptions as structured JSON)
-5. **Queries Notion** for community highlights and initiatives
+5. ~~Queries Notion for community highlights and initiatives~~ (removed 2026-10-10: events and news only)
 6. **Generates** story summaries and "why it matters" sections
 7. **Saves** a formatted draft to a Notion database
 
