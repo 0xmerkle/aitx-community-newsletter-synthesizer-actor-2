@@ -13,7 +13,6 @@ import { synthesizeMetadata } from './pipeline/step7-synthesize-metadata.js';
 import { saveOutput } from './pipeline/step8-save-output.js';
 import { AnthropicService } from './services/anthropic.js';
 import { JevService } from './services/jev.js';
-import type { Judge } from './services/judge.js';
 import { NotionService } from './services/notion.js';
 import type { ActorInput, NewsletterDraft, PipelineState } from './types.js';
 import { clearCheckpoint, loadCheckpoint, saveCheckpoint } from './utils/checkpoint.js';
@@ -44,8 +43,8 @@ try {
 
     const claudeService = new AnthropicService();
     const notionService = new NotionService();
-    const judge: Judge = input.judge === 'jev' ? new JevService(claudeService) : claudeService;
-    log.info(`Judging stories and events with ${input.judge === 'jev' ? 'TypeSafe Jev' : 'Claude'}`);
+    // Jev makes every keep/drop decision; Claude only writes copy.
+    const jev = new JevService();
 
     // Load checkpoint or create fresh state. Do not reuse rawData from a different dataset.
     const checkpoint = await loadCheckpoint();
@@ -76,7 +75,7 @@ try {
 
     // Step 2: Filter relevance
     if (state.step < 2) {
-        const { relevant, rejected } = await filterRelevance(state.rawData!.articles, judge, issueDate);
+        const { relevant, rejected } = await filterRelevance(state.rawData!.articles, jev);
         state.relevantArticles = relevant;
         state.articleRejections = rejected;
         state.step = 2;
@@ -104,7 +103,7 @@ try {
 
     // Step 6: Filter events
     if (state.step < 6) {
-        const { events, rejected } = await filterEvents(state.rawData!.events, claudeService, judge);
+        const { events, rejected } = await filterEvents(state.rawData!.events, claudeService, jev);
         state.filteredEvents = events;
         state.eventRejections = rejected;
         state.step = 6;

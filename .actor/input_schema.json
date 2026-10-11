@@ -29,21 +29,6 @@
             "type": "boolean",
             "description": "Ignore any saved checkpoint and refetch the input dataset.",
             "default": false
-        },
-        "judge": {
-            "title": "Judge",
-            "type": "string",
-            "description": "Which model decides what's kept. Writing always uses Claude. \"jev\" needs OPENROUTER_API_KEY.",
-            "editor": "select",
-            "enum": [
-                "claude",
-                "jev"
-            ],
-            "enumTitles": [
-                "Claude (Haiku)",
-                "TypeSafe Jev (via OpenRouter)"
-            ],
-            "default": "claude"
         }
     },
     "required": [

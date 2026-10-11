@@ -11,7 +11,7 @@ export const CONFIG = {
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY || '',
     NOTION_API_KEY: process.env.NOTION_API_KEY || '',
     NOTION_DRAFTS_DB_ID: process.env.NOTION_DRAFTS_DB_ID || '',
-    // Only needed when input.judge is "jev" (TypeSafe Jev via OpenRouter)
+    // TypeSafe Jev via OpenRouter: makes every keep/drop decision
     OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY || '',
     // Writing (stories, metadata)
     CLAUDE_MODEL: 'claude-sonnet-5-5' as const,
@@ -26,6 +26,7 @@ export function validateConfig(): void {
         ['ANTHROPIC_API_KEY', CONFIG.ANTHROPIC_API_KEY],
         ['NOTION_API_KEY', CONFIG.NOTION_API_KEY],
         ['NOTION_DRAFTS_DB_ID', CONFIG.NOTION_DRAFTS_DB_ID],
+        ['OPENROUTER_API_KEY', CONFIG.OPENROUTER_API_KEY],
     ];
 
     const missing = required.filter(([, value]) => !value).map(([name]) => name);

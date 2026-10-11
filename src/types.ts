@@ -3,8 +3,6 @@ export interface ActorInput {
     topStoriesCount?: number;
     webhookUrl?: string;
     forceFresh?: boolean;
-    /** Which model makes the keep/drop decisions. Writing always uses Claude. */
-    judge?: 'claude' | 'jev';
 }
 
 export interface ArticleData {

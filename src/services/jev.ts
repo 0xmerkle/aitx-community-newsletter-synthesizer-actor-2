@@ -3,7 +3,6 @@ import log from '@apify/log';
 import { CONFIG } from '../config.js';
 import type { EventClassificationResult } from '../schemas/eventClassification.js';
 import type { ArticleData, EventData, RelevantArticle } from '../types.js';
-import type { AnthropicService } from './anthropic.js';
 
 // TypeSafe Jev via OpenRouter's decisions endpoint (not chat/completions).
 // Jev answers typed questions about a "state": noul = probability of yes,
@@ -23,7 +22,8 @@ const ARTICLE_EXCERPT_CHARS = 1500;
 
 type Question =
     | { type: 'noul'; instructions: string; criteria?: { true: string; false: string } }
-    | { type: 'score'; instructions: string; criteria: string[] };
+    | { type: 'score'; instructions: string; criteria: string[] }
+    | { type: 'choice'; instructions: string; criteria: Record<string, string | null> };
 
 interface NoulAnswer {
     type: 'noul';
@@ -33,7 +33,15 @@ interface ScoreAnswer {
     type: 'score';
     score: number;
 }
-type Answers = Record<string, NoulAnswer | ScoreAnswer>;
+interface ChoiceAnswer {
+    type: 'choice';
+    choice: string;
+    probabilities: Record<string, number>;
+}
+type Answers = Record<string, NoulAnswer | ScoreAnswer | ChoiceAnswer>;
+
+// A duplicate match must be at least this likely before we drop a story
+const DUPLICATE_THRESHOLD = 0.6;
 
 // Rules (Michael, 2026-10-11):
 // Events: in person AND in Texas AND AI-related. Rank builders, engineers and
@@ -99,10 +107,11 @@ const ARTICLE_QUESTIONS: Record<string, Question> = {
     },
 };
 
+/** Makes every keep/drop decision for stories and events. Claude only writes copy. */
 export class JevService {
-    constructor(private readonly claude: AnthropicService) {
+    constructor() {
         if (!CONFIG.OPENROUTER_API_KEY) {
-            throw new Error('OPENROUTER_API_KEY is required when judge is "jev"');
+            throw new Error('OPENROUTER_API_KEY is required (TypeSafe Jev via OpenRouter)');
         }
     }
 
@@ -137,7 +146,7 @@ export class JevService {
         });
     }
 
-    async evaluateRelevance(articles: ArticleData[], issueDate: string): Promise<RelevantArticle[]> {
+    async evaluateRelevance(articles: ArticleData[]): Promise<RelevantArticle[]> {
         const answers = await mapLimit(articles, CONCURRENCY, async (a) =>
             this.decide(
                 {
@@ -168,11 +177,55 @@ export class JevService {
             ];
         });
 
-        // Jev judges each article in isolation, so it can't see two outlets covering
-        // the same story. Claude does that one cross-article check.
         const eligible = judged.filter((a) => a.is_ai_relevant && a.is_texas_relevant);
-        const duplicates = await this.claude.findDuplicateStories(eligible, issueDate);
+        const duplicates = await this.findDuplicateStories(eligible);
         return judged.filter((a) => !duplicates.has(a.url));
+    }
+
+    /**
+     * Different outlets often cover the same story. One request: every article is
+     * in the state, and for each one Jev picks which earlier article (if any)
+     * covers the same story. Of each matched pair, the lower-relevance one is dropped.
+     */
+    private async findDuplicateStories(articles: RelevantArticle[]): Promise<Set<string>> {
+        const dupes = new Set<string>();
+        if (articles.length < 2) return dupes;
+
+        const id = (i: number) => `a${i + 1}`;
+        const questions: Record<string, Question> = {};
+        for (let i = 1; i < articles.length; i++) {
+            const criteria: Record<string, string | null> = { none: 'No earlier article covers the same story' };
+            for (let j = 0; j < i; j++) criteria[id(j)] = articles[j].headline;
+            questions[id(i)] = {
+                type: 'choice',
+                instructions: `Which earlier article covers the same underlying story (same announcement, deal, launch, ruling, or event) as article \`${id(i)}\`? Articles about different stories are not the same, even if they share a company or topic.`,
+                criteria,
+            };
+        }
+
+        const answers = await this.decide(
+            {
+                articles: Object.fromEntries(
+                    articles.map((a, i) => [id(i), { headline: a.headline, source: a.source_name, summary: a.description?.slice(0, 400) }]),
+                ),
+            },
+            questions,
+        );
+        if (!answers) {
+            log.warning('Jev duplicate check failed; keeping all stories');
+            return dupes;
+        }
+
+        for (let i = 1; i < articles.length; i++) {
+            const a = answers[id(i)];
+            if (a?.type !== 'choice' || a.choice === 'none' || (a.probabilities[a.choice] ?? 0) < DUPLICATE_THRESHOLD) continue;
+            const j = Number(a.choice.slice(1)) - 1;
+            const [weaker, stronger] =
+                articles[i].relevance_score <= articles[j].relevance_score ? [articles[i], articles[j]] : [articles[j], articles[i]];
+            log.info(`Dropping duplicate story "${weaker.headline}" (same story as "${stronger.headline}")`);
+            dupes.add(weaker.url);
+        }
+        return dupes;
     }
 
     private async decide(state: Record<string, unknown>, questions: Record<string, Question>): Promise<Answers | undefined> {

@@ -1,6 +1,6 @@
 import log from '@apify/log';
 
-import type { Judge } from '../services/judge.js';
+import type { JevService } from '../services/jev.js';
 import type { ArticleData, Rejection, RelevantArticle } from '../types.js';
 
 // Older stories are stale for a weekly. Articles with no date are kept and judged on content.
@@ -12,8 +12,7 @@ const MIN_STORY_SCORE = 40;
 
 export async function filterRelevance(
     articles: ArticleData[],
-    judge: Judge,
-    issueDate: string,
+    jev: JevService,
 ): Promise<{ relevant: RelevantArticle[]; rejected: Rejection[] }> {
     log.info(`Step 2: Filtering ${articles.length} articles for relevance...`);
     const rejected: Rejection[] = [];
@@ -39,7 +38,7 @@ export async function filterRelevance(
         return { relevant: [], rejected };
     }
 
-    const evaluated = await judge.evaluateRelevance(fresh, issueDate);
+    const evaluated = await jev.evaluateRelevance(fresh);
     const relevant: RelevantArticle[] = [];
     for (const article of evaluated) {
         const failed = [

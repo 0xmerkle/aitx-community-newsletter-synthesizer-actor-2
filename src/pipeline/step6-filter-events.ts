@@ -1,7 +1,7 @@
 import log from '@apify/log';
 
 import type { AnthropicService } from '../services/anthropic.js';
-import type { Judge } from '../services/judge.js';
+import type { JevService } from '../services/jev.js';
 import type { EventData, FilteredEvent, Rejection } from '../types.js';
 import { formatEventDateTime } from '../utils/dateFormatting.js';
 import { addDaysToDateKey, getCentralDateKey, getNewsletterCutoffDateKey, parseEventDate } from '../utils/eventDate.js';
@@ -22,7 +22,7 @@ const TEXAS_STATE_VALUES = new Set(['tx', 'texas']);
 export async function filterEvents(
     events: EventData[],
     claudeService: AnthropicService,
-    judge: Judge,
+    jev: JevService,
 ): Promise<{ events: FilteredEvent[]; rejected: Rejection[] }> {
     log.info(`Step 6: Filtering ${events.length} events...`);
     const rejected: Rejection[] = [];
@@ -107,7 +107,7 @@ export async function filterEvents(
     log.info(`After dedup: ${deduped.length} events`);
 
     // Pass 6: Texas / in person / AI-focused, as three separate yes/no checks
-    const passed = await selectByClassification(deduped, judge, reject);
+    const passed = await selectByClassification(deduped, jev, reject);
 
     // Pass 7: Cap. Keep the most builder-relevant events, then list them by date.
     const startTime = (e: EventData) => parseEventDate(e.start_date)?.getTime() ?? 0;
@@ -153,14 +153,14 @@ export async function filterEvents(
 
 async function selectByClassification(
     events: EventData[],
-    judge: Judge,
+    jev: JevService,
     reject: (e: EventData, reason: string) => void,
 ): Promise<{ event: EventData; fit: number }[]> {
     if (events.length === 0) return [];
 
     let decisions;
     try {
-        decisions = await judge.classifyEvents(events);
+        decisions = await jev.classifyEvents(events);
     } catch (error) {
         // Fail closed: listing unchecked events is worse than an empty section.
         log.error('Event classification failed; no events will be listed', { error: String(error) });

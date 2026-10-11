@@ -14,5 +14,11 @@
         "dataset": "./dataset_schema.json",
         "keyValueStore": "./key_value_store_schema.json"
     },
-    "dockerfile": "../Dockerfile"
+    "dockerfile": "../Dockerfile",
+    "environmentVariables": {
+        "OPENROUTER_API_KEY": "@OPENROUTER_API_KEY",
+        "NOTION_API_KEY": "@NOTION_API_KEY",
+        "NOTION_DRAFTS_DB_ID": "@NOTION_DRAFTS_DB_ID",
+        "ANTHROPIC_API_KEY": "@ANTHROPIC_API_KEY"
+    }
 }
