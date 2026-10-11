@@ -36,7 +36,8 @@ try {
     if (!input.datasetId) {
         throw new Error('Missing required input: "datasetId"');
     }
-    const topStoriesCount = input.topStoriesCount ?? 5;
+    // Hard cap per issue (Michael, 2026-10-11): top 3 stories by relevance.
+    const topStoriesCount = Math.min(input.topStoriesCount ?? 3, 3);
     // The Friday this issue goes out, e.g. "Friday, October 16, 2026"
     const issueDate = formatIssueDate(getNewsletterCutoffDateKey());
     log.info(`Building issue for ${issueDate}`);

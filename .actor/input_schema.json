@@ -12,10 +12,10 @@
         "topStoriesCount": {
             "title": "Top Stories Count",
             "type": "integer",
-            "description": "Number of top stories to feature in the newsletter. Extras beyond what you publish serve as ready-made backups.",
-            "default": 5,
+            "description": "Number of top stories (max 3). The highest-relevance stories are kept.",
+            "default": 3,
             "minimum": 1,
-            "maximum": 10
+            "maximum": 3
         },
         "webhookUrl": {
             "title": "Webhook URL",

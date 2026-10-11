@@ -6,12 +6,13 @@ import type { EventData, FilteredEvent, Rejection } from '../types.js';
 import { formatEventDateTime } from '../utils/dateFormatting.js';
 import { addDaysToDateKey, getCentralDateKey, getNewsletterCutoffDateKey, parseEventDate } from '../utils/eventDate.js';
 import { enrichFromLuma } from '../utils/lumaEnrichment.js';
-import { cleanCopy } from '../utils/textFormatting.js';
+import { cleanCopy, cleanEventTitle } from '../utils/textFormatting.js';
 
 // Events from the issue date through the following week.
 const EVENT_WINDOW_DAYS = 7;
 // No minimum and no backfill: an event is listed only if it passes every check.
-const MAX_EVENTS = 12;
+// Hard cap per issue (Michael, 2026-10-11). The most builder-relevant events win.
+const MAX_EVENTS = 5;
 // Fallback length when a description can't be summarized
 const MAX_DISPLAY_DESCRIPTION = 300;
 // Title token overlap at which two same-day events count as the same listing
@@ -134,7 +135,7 @@ export async function filterEvents(
     }
 
     const formatted: FilteredEvent[] = selected.map((e) => ({
-        title: cleanCopy(e.title),
+        title: cleanEventTitle(e.title),
         url: e.url,
         when: formatEventDateTime({
             start_date: e.start_date!,
