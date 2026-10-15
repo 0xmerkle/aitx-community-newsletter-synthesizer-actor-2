@@ -40,8 +40,13 @@ interface ChoiceAnswer {
 }
 type Answers = Record<string, NoulAnswer | ScoreAnswer | ChoiceAnswer>;
 
-// A duplicate match must be at least this likely before we drop a story
+// An article is a duplicate when Jev puts at least this much probability on
+// "some earlier article is the same story" (1 - P(none)). Several earlier
+// write-ups of one story split the probability between them, so no single
+// option is a reliable signal.
 const DUPLICATE_THRESHOLD = 0.6;
+// Link to every earlier article holding at least this share of the probability
+const DUPLICATE_LINK_MIN = 0.1;
 
 // Rules (Michael, 2026-10-11):
 // Events: in person AND in Texas AND AI-related. Rank builders, engineers and
@@ -216,15 +221,35 @@ export class JevService {
             return dupes;
         }
 
+        // Group every linked pair into clusters (union-find), then keep only the
+        // highest-relevance article per cluster. Dropping just the weaker side of
+        // each pair leaves several write-ups of one story when a cluster is large.
+        const parent = articles.map((_, i) => i);
+        const root = (i: number): number => {
+            if (parent[i] !== i) parent[i] = root(parent[i]);
+            return parent[i];
+        };
         for (let i = 1; i < articles.length; i++) {
             const a = answers[id(i)];
-            if (a?.type !== 'choice' || a.choice === 'none' || (a.probabilities[a.choice] ?? 0) < DUPLICATE_THRESHOLD) continue;
-            const j = Number(a.choice.slice(1)) - 1;
-            const [weaker, stronger] =
-                articles[i].relevance_score <= articles[j].relevance_score ? [articles[i], articles[j]] : [articles[j], articles[i]];
-            log.info(`Dropping duplicate story "${weaker.headline}" (same story as "${stronger.headline}")`);
-            dupes.add(weaker.url);
+            if (a?.type !== 'choice' || 1 - (a.probabilities.none ?? 0) < DUPLICATE_THRESHOLD) continue;
+            for (const [option, p] of Object.entries(a.probabilities)) {
+                if (option === 'none' || p < DUPLICATE_LINK_MIN) continue;
+                parent[root(i)] = root(Number(option.slice(1)) - 1);
+            }
         }
+        const best = new Map<number, number>();
+        articles.forEach((article, i) => {
+            const r = root(i);
+            const current = best.get(r);
+            if (current === undefined || article.relevance_score > articles[current].relevance_score) best.set(r, i);
+        });
+        articles.forEach((article, i) => {
+            const keep = best.get(root(i))!;
+            if (keep !== i) {
+                log.info(`Dropping duplicate story "${article.headline}" (same story as "${articles[keep].headline}")`);
+                dupes.add(article.url);
+            }
+        });
         return dupes;
     }
 
