@@ -216,7 +216,7 @@ This week:
 Top stories:
 ${storySummary}
 
-Upcoming events (run by other organizations, not by AITX Community; never call them AITX events):
+Upcoming events (run by other organizations: never call them AITX events, and don't comment on who runs them; just call them events or Texas AI events):
 ${eventSummary}
 
 Write:
