@@ -110,13 +110,29 @@ export async function filterEvents(
     // Pass 6: Texas / in person / AI-focused, as three separate yes/no checks
     const passed = await selectByClassification(deduped, jev, reject);
 
-    // Pass 7: Cap. Keep the most builder-relevant events, then list them by date.
+    // Pass 7: Cap. Highest builder fit first. Among equally good events, prefer a
+    // city with fewer picks so far, then the earlier date, so one busy Austin
+    // weekend doesn't fill all five slots. Listed by date.
     const startTime = (e: EventData) => parseEventDate(e.start_date)?.getTime() ?? 0;
-    passed.sort((a, b) => b.fit - a.fit || startTime(a.event) - startTime(b.event));
-    for (const extra of passed.splice(MAX_EVENTS)) {
+    const cityOf = (e: EventData) => (e.city || e.search_city || '').trim().toLowerCase();
+    const picks: typeof passed = [];
+    const perCity = new Map<string, number>();
+    const pool = [...passed];
+    while (picks.length < MAX_EVENTS && pool.length > 0) {
+        pool.sort(
+            (a, b) =>
+                b.fit - a.fit ||
+                (perCity.get(cityOf(a.event)) ?? 0) - (perCity.get(cityOf(b.event)) ?? 0) ||
+                startTime(a.event) - startTime(b.event),
+        );
+        const next = pool.shift()!;
+        picks.push(next);
+        perCity.set(cityOf(next.event), (perCity.get(cityOf(next.event)) ?? 0) + 1);
+    }
+    for (const extra of pool) {
         reject(extra.event, `Passed every check but over the ${MAX_EVENTS}-event cap (builder fit ${extra.fit}/5)`);
     }
-    const selected = passed.map((p) => p.event).sort((a, b) => startTime(a) - startTime(b));
+    const selected = picks.map((p) => p.event).sort((a, b) => startTime(a) - startTime(b));
 
     // Pass 8: Summarize long descriptions for display
     for (const event of selected) {
